@@ -56,7 +56,7 @@ void mySSIinit(void)
 	//configure SSI handler function
 	//theSSItags is an array of SSI tag strings to search for in SSI-enabled files
 
-	//Note: #define LWIP_HTTPD_SSI must be set to 1 in file httpd_opts.h for this to work. Can this be done from CubeIDE?
+	//Note: #define LWIP_HTTPD_SSI 1 must be added in lwipopts.h. It should be possible from STM32CubeIDE but something did not work.
 	http_set_ssi_handler(mySSIHandler, (char const **)theSSItags, numSSItags);
 
 } //mySSIinit
