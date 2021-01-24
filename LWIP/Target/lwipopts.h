@@ -31,6 +31,8 @@
 /* Within 'USER CODE' section, code will be kept by default at each generation */
 /* USER CODE BEGIN 0 */
 
+#define LWIP_HTTPD_SSI 1
+
 /* USER CODE END 0 */
 
 #ifdef __cplusplus
@@ -81,6 +83,8 @@
 #define LWIP_HTTPD 1
 /*----- Default Value for LWIP_HTTPD_CGI: 0 ---*/
 #define LWIP_HTTPD_CGI 1
+/*----- Default Value for LWIP_HTTPD_SSI_BY_FILE_EXTENSION: 1 ---*/
+#define LWIP_HTTPD_SSI_BY_FILE_EXTENSION 0
 /*----- Value in opt.h for HTTPD_USE_CUSTOM_FSDATA: 0 -----*/
 #define HTTPD_USE_CUSTOM_FSDATA 1
 /*----- Value in opt.h for LWIP_STATS: 1 -----*/

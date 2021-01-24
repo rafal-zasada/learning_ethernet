@@ -20,12 +20,18 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "lwip.h"
+#include "usart.h"
+#include "usb_otg.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
 #include <string.h>
 #include "lwip/apps/httpd.h"
+// my code
+#include "CGI_http.h"
+#include "SSI_http.h"
 
 /* USER CODE END Includes */
 
@@ -45,19 +51,10 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-UART_HandleTypeDef huart3;
-
-PCD_HandleTypeDef hpcd_USB_OTG_FS;
-
 /* USER CODE BEGIN PV */
 
+char GUI_buffer[200] = {0};
 
-// prototype CGI handler for the LED control
-const char * LedCGIhandler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
-// this structure contains the name of the LED CGI and corresponding handler for the LEDs
-const tCGI LedCGI={"/leds.cgi", LedCGIhandler};
-//table of the CGI names and handlers
-tCGI theCGItable[1];
 
 
 
@@ -65,68 +62,12 @@ tCGI theCGItable[1];
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-
-
-
-/**** CGI handler for controlling the LEDs ****/
-// the function pointer for a CGI script handler is defined in httpd.h as tCGIHandler
-const char * LedCGIhandler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
-{
-	uint32_t i=0;
-	// index of the CGI within the theCGItable array passed to http_set_cgi_handlers
-	// Given how this example is structured, this may be a redundant check.
-	// Here there is only one handler iIndex == 0
-	if (iIndex == 0)
-	{
-		// turn off the LEDs
-		HAL_GPIO_WritePin(LD3_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
-		// Check the cgi parameters, e.g., GET /leds.cgi?led=1&led=2
-		for (i=0; i<iNumParams; i++)
-		{
-			//if pcParmeter contains "led", then one of the LED check boxes has been set on
-			if (strcmp(pcParam[i], "led") == 0)
-			{
-				//see if checkbox for LED 1 has been set
-				if(strcmp(pcValue[i], "1") == 0)
-				{
-					// switch led 1 ON if 1
-					HAL_GPIO_WritePin(LD3_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-				}
-				//see if checkbox for LED 2 has been set
-				else if(strcmp(pcValue[i], "2") == 0)
-				{
-					// switch led 2 ON if 2
-					HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
-				}
-			} //if
-		} //for
-	} //if
-	//uniform resource identifier to send after CGI call, i.e., path and filename of the response
-	return "/index.html";
-} //LedCGIhandler
-
-
-
-// Initialize the CGI handlers
-void myCGIinit(void)
-{
-//add LED control CGI to the table
-theCGItable[0] = LedCGI;
-//give the table to the HTTP server
-http_set_cgi_handlers(theCGItable, 1);
-} //myCGIinit
-
 
 /* USER CODE END 0 */
 
@@ -165,9 +106,15 @@ int main(void)
 
     httpd_init();
 
-
     //initialise the CGI handlers
     myCGIinit();
+
+    //Initialize SSI handlers
+    mySSIinit();
+
+//    extern char const *theSSItags[];  		// no need to include constant ?
+
+
 
 
   /* USER CODE END 2 */
@@ -179,31 +126,36 @@ int main(void)
 	  MX_LWIP_Process();
 
 	  HAL_GPIO_TogglePin(LD3_GPIO_Port, LD1_Pin);
-	  HAL_Delay(50);
+	  HAL_Delay(10);
 
-
-//	  To get IP address, use netif_ip4_addr() and ip4_addr_get_u32().
+//	  To get IP address, use netif_ip4_addr() and ip4_addr_get_u32().                     Not that useful
 //	   When using DHCP, use ip4_addr_isany_val() to determine if it's assigned.
 //		And take a look at lwIP's bunch of similar functions and macros.
 
+	  // #define ip4_addr_get_u32(src_ipaddr) ((src_ipaddr)->addr)
+	  // #define netif_ip4_addr(netif)        ((const ip4_addr_t*)ip_2_ip4(&((netif)->ip_addr)))
 
 
 	  if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1)
 	  {
-		  char GUI_buffer[200] = {0};
-		  extern ip4_addr_t ipaddr;	// from lwip.c (for static only?)
-		  extern struct netif gnetif; // from lwip.c (for DHCP only?)
 
-		  snprintf(GUI_buffer, sizeof(GUI_buffer), "IP address (static only?) = %u\n", ipaddr.addr);
+		  extern ip4_addr_t ipaddr;	// from lwip.c
+		  extern struct netif gnetif; // from lwip.c
+
+		  snprintf(GUI_buffer, sizeof(GUI_buffer), "Predefined static IP = %lu\n", ipaddr.addr);
 		  HAL_UART_Transmit(&huart3, (unsigned char*)&GUI_buffer , strlen(GUI_buffer) + 1, 200);
 
-		  snprintf(GUI_buffer, sizeof(GUI_buffer), "IP address (DHCP only?) = %u\n", gnetif.ip_addr);
+		  snprintf(GUI_buffer, sizeof(GUI_buffer), "IP read from network interface (dyn. or stat.) = %lu\n", (gnetif.ip_addr));
+		  HAL_UART_Transmit(&huart3, (unsigned char*)&GUI_buffer , strlen(GUI_buffer) + 1, 200);
+
+		  snprintf(GUI_buffer, sizeof(GUI_buffer), "IP read from network interface using macro (dyn. or stat.) = %lu\n", *netif_ip4_addr(&gnetif));
+		  HAL_UART_Transmit(&huart3, (unsigned char*)&GUI_buffer , strlen(GUI_buffer) + 1, 200);
+
+		  snprintf(GUI_buffer, sizeof(GUI_buffer), "Predefined static IP (using macro) = %lu\n", ip4_addr_get_u32(&ipaddr));
 		  HAL_UART_Transmit(&huart3, (unsigned char*)&GUI_buffer , strlen(GUI_buffer) + 1, 200);
 
 		  HAL_Delay(500);
 	  }
-
-
 
     /* USER CODE END WHILE */
 
@@ -270,134 +222,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief USART3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART3_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
-  /* USER CODE BEGIN USART3_Init 1 */
-
-  /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART3_Init 2 */
-
-  /* USER CODE END USART3_Init 2 */
-
-}
-
-/**
-  * @brief USB_OTG_FS Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USB_OTG_FS_PCD_Init(void)
-{
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 0 */
-
-  /* USER CODE END USB_OTG_FS_Init 0 */
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 1 */
-
-  /* USER CODE END USB_OTG_FS_Init 1 */
-  hpcd_USB_OTG_FS.Instance = USB_OTG_FS;
-  hpcd_USB_OTG_FS.Init.dev_endpoints = 6;
-  hpcd_USB_OTG_FS.Init.speed = PCD_SPEED_FULL;
-  hpcd_USB_OTG_FS.Init.dma_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
-  hpcd_USB_OTG_FS.Init.Sof_enable = ENABLE;
-  hpcd_USB_OTG_FS.Init.low_power_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.lpm_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
-  hpcd_USB_OTG_FS.Init.use_dedicated_ep1 = DISABLE;
-  if (HAL_PCD_Init(&hpcd_USB_OTG_FS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_OTG_FS_Init 2 */
-
-  /* USER CODE END USB_OTG_FS_Init 2 */
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LD1_Pin|LD3_Pin|LD2_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : USER_Btn_Pin */
-  GPIO_InitStruct.Pin = USER_Btn_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(USER_Btn_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : LD1_Pin */
-  GPIO_InitStruct.Pin = LD1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD1_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : LD3_Pin LD2_Pin */
-  GPIO_InitStruct.Pin = LD3_Pin|LD2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : USB_PowerSwitchOn_Pin */
-  GPIO_InitStruct.Pin = USB_PowerSwitchOn_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(USB_PowerSwitchOn_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : USB_OverCurrent_Pin */
-  GPIO_InitStruct.Pin = USB_OverCurrent_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
-
 }
 
 /* USER CODE BEGIN 4 */
